@@ -159,6 +159,7 @@ public class FayeClient implements Listener {
     }
 
     private void openWebSocketConnection() {
+        mConnectionClosed = false;
 
         if (mClient != null) {
             mClient.disconnect();
