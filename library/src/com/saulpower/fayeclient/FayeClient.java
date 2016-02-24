@@ -105,6 +105,7 @@ public class FayeClient implements Listener {
     };
 
     private FayeListener mFayeListener;
+    private boolean mConnectionClosed;
 
     /**
      * Register a callback to be invoked for specific Faye client
@@ -147,10 +148,6 @@ public class FayeClient implements Listener {
         openWebSocketConnection();
     }
 
-    public void disconnectFromServer() {
-        disconnect();
-    }
-
     /**
      * Sends events on a channel by sending an event message
      *
@@ -173,6 +170,8 @@ public class FayeClient implements Listener {
     }
 
     public void closeWebSocketConnection() {
+
+        mConnectionClosed = true;
 
         Log.i(TAG, "socket disconnected");
 
@@ -435,6 +434,8 @@ public class FayeClient implements Listener {
      */
     @Override
     public void onError(Exception error) {
+
+        if(mConnectionClosed) return;
 
         Log.w(TAG, "resetWebSocketConnection " + error.getMessage(), error);
 
