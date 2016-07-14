@@ -4,11 +4,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.text.TextUtils;
 import android.util.Log;
-import org.apache.http.Header;
-import org.apache.http.HttpException;
-import org.apache.http.HttpStatus;
-import org.apache.http.NameValuePair;
-import org.apache.http.StatusLine;
+import org.apache.http.*;
 import org.apache.http.client.HttpResponseException;
 import org.apache.http.message.BasicLineParser;
 import org.apache.http.message.BasicNameValuePair;
@@ -22,6 +18,8 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintWriter;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.Socket;
 import java.net.URI;
 import java.security.KeyManagementException;
@@ -44,6 +42,10 @@ public class WebSocketClient {
     private List<BasicNameValuePair> mExtraHeaders;
     private HybiParser mParser;
 
+    private Class<?> mOpenSslSocketClass;
+    private Method mSetHostname;
+    private Method mSetUseSessionTickets;
+
     public WebSocketClient(Handler uiHandler, URI uri, Listener listener, List<BasicNameValuePair> extraHeaders) {
         mUiHandler = uiHandler;
         mURI = uri;
@@ -54,6 +56,19 @@ public class WebSocketClient {
         mHandlerThread = new HandlerThread("websocket-thread");
         mHandlerThread.start();
         mHandler = new Handler(mHandlerThread.getLooper());
+
+        try {
+            try {
+                mOpenSslSocketClass = Class.forName("com.android.org.conscrypt.OpenSSLSocketImpl");
+            } catch (ClassNotFoundException e) {
+                mOpenSslSocketClass = Class.forName(
+                        "org.apache.harmony.xnet.provider.jsse.OpenSSLSocketImpl");
+            }
+            mSetUseSessionTickets = mOpenSslSocketClass.getMethod("setUseSessionTickets", boolean.class);
+            mSetHostname = mOpenSslSocketClass.getMethod("setHostname", String.class);
+        } catch (ClassNotFoundException | NoSuchMethodException e) {
+            Log.e(TAG, "TLS extensions initialization error", e);
+        }
     }
 
     public static void setTrustManagers(TrustManager[] tm) {
@@ -89,8 +104,9 @@ public class WebSocketClient {
                     SocketFactory factory = mURI.getScheme().equals("wss")
                             ? getSSLSocketFactory() : SocketFactory.getDefault();
 
-                    mSocket = factory.createSocket(mURI.getHost(), port);
 
+                    mSocket = factory.createSocket(mURI.getHost(), port);
+                    enableTlsExtensions(mSocket, mURI.getHost());
                     String secret = createSecret();
 
                     PrintWriter out = new PrintWriter(mSocket.getOutputStream());
@@ -170,6 +186,21 @@ public class WebSocketClient {
             }
         });
         mThread.start();
+    }
+
+
+    public void enableTlsExtensions(Socket socket, String uriHost) {
+
+
+        if (!mOpenSslSocketClass.isInstance(socket)) return;
+
+        try {
+            if (mSetHostname != null) mSetHostname.invoke(socket, uriHost);
+            if (mSetUseSessionTickets != null) mSetUseSessionTickets.invoke(socket, true);
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            Log.e(TAG, "Applying TLS extension error", e);
+        }
+
     }
 
     private void onError(final Exception ex) {
